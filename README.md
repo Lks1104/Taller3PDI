@@ -31,8 +31,12 @@ tu_proyecto/
 │   └── detr_plantas_front.pt   Modelo que usa la aplicación (lo genera exportar_modelo.py)
 ├── exportar_modelo.py      Script que se corre una sola vez para generar detr_plantas_front.pt
 ├── requirements.txt        Dependencias de Python
+├── .gitignore              Qué archivos NO se suben al repositorio
+├── .gitattributes          Le indica a Git que los .pt de modelos/ van con Git LFS
 └── README.md               Este archivo
 ```
+
+`.gitignore` y `.gitattributes` son archivos ocultos (empiezan por punto) y deben estar **en la raíz del proyecto**, al mismo nivel que este README.
 
 `detr_modelo.py` **debe estar dentro de `Codigo/`**, junto a `app.py` y `reconocer.py`: `reconocer.py` lo importa desde esa misma carpeta.
 
@@ -49,6 +53,7 @@ El entrenamiento se hizo en el cuaderno `DETR_Plantas_UNIBAN.ipynb` (Google Cola
 | **Archivos de código** | `Codigo/app.py`, `Codigo/reconocer.py`, `Codigo/detr_modelo.py` |
 | **Modelo entrenado** | `modelos/detr_plantas_front.pt` (se genera a partir de `modelos/detr_plantas_mejor.pt`) |
 | **Espacio en disco** | Unos 3 GB con la versión de `torch` con CUDA, o bastante menos con la versión de CPU |
+| **Git y Git LFS** | Solo si se obtiene el proyecto con `git clone` (los `.pt` se guardan con Git LFS, ver la sección 11) |
 | **Internet** | Solo para instalar las bibliotecas. La aplicación **funciona sin conexión** y no descarga nada al arrancar |
 | **GPU** | Opcional. Si hay una con CUDA, la aplicación la usa; si no, corre en CPU (más lento, pero funciona) |
 
@@ -105,6 +110,7 @@ Debe imprimir un diccionario con `clases: ['planta']`, `umbral: 0.9`, `lado: 640
 |---|---|
 | **Python 3.12** | Instalarlo desde https://www.python.org/downloads/ marcando *Add python.exe to PATH* y volver a abrir la terminal |
 | **`.venv` o las bibliotecas** | Hacer la instalación de la sección 5, pasos 1 y 2 |
+| **`detr_plantas_front.pt` existe pero pesa solo unos bytes (o da `invalid load key`)** | Es el archivito de texto de Git LFS y no el modelo real. Instalar Git LFS y correr `git lfs pull` (sección 11) |
 | **Archivos de `Codigo/`** | Copiarlos desde el repositorio. Los tres deben estar en la misma carpeta |
 | **`detr_plantas_front.pt`, pero sí está `detr_plantas_mejor.pt`** | Correr `exportar_modelo.py` (sección 5, paso 4) |
 | **Ninguno de los dos `.pt`** | Bajar `detr_plantas_mejor.pt` de Google Drive (`MyDrive/DETR_plantas/`, donde lo deja el cuaderno al entrenar) y ponerlo en `modelos/`. Después, correr `exportar_modelo.py` |
@@ -197,6 +203,7 @@ El número debe ser parecido a las líneas del `.txt` de esa imagen (error típi
 | `FileNotFoundError ... detr_plantas_front.pt` | Falta el modelo. Ver la sección 4 |
 | `ModuleNotFoundError: No module named 'torch'` (u otra biblioteca) | Se usó otro Python o no se instaló. Instalar con la sección 5, paso 2, y correr con `.venv\Scripts\...` |
 | `ModuleNotFoundError: No module named 'detr_modelo'` | `detr_modelo.py` no está en la carpeta `Codigo/` |
+| `invalid load key` o `UnpicklingError` al cargar el `.pt` | El archivo es el puntero de Git LFS y no el modelo. Correr `git lfs pull` |
 | `Missing key(s)` o `size mismatch` al cargar el modelo | El `.pt` no corresponde a este código (otro modelo o configuración distinta). Regenerarlo con `exportar_modelo.py` a partir del checkpoint del cuaderno |
 | `streamlit` no se reconoce como comando | Correrlo como `.venv\Scripts\streamlit run Codigo\app.py`, o `.venv\Scripts\python -m streamlit run Codigo\app.py` |
 | El puerto 8501 está ocupado | `.venv\Scripts\streamlit run Codigo\app.py --server.port 8502` |
@@ -228,18 +235,30 @@ El número debe ser parecido a las líneas del `.txt` de esa imagen (error típi
 
 ---
 
-## 11. Qué subir al repositorio
+## 11. Subir el proyecto a GitHub (con Git LFS)
 
-El checkpoint `detr_plantas_mejor.pt` pesa unos 166 MB y **GitHub rechaza archivos de más de 100 MB**. `detr_plantas_front.pt` (unos 83 MB) sí cabe. Un `.gitignore` recomendado:
+GitHub **rechaza archivos de más de 100 MB** y avisa desde los 50 MB. Los modelos (`detr_plantas_mejor.pt`, unos 166 MB, y `detr_plantas_front.pt`, unos 83 MB) se suben con **Git LFS**, que guarda el archivo grande aparte y deja en el repositorio solo un puntero de texto.
+
+### Qué se sube y qué no
+
+| Se sube | No se sube |
+|---|---|
+| `Codigo/`, `exportar_modelo.py`, `requirements.txt`, `README.md`, `.gitignore`, `.gitattributes` | `.venv/`, `__pycache__/` |
+| `modelos/*.pt` (por Git LFS) | El dataset (`dataset_plantas/`, `dataset_plantas_detr.zip`) |
+| | Archivos del sistema (`Thumbs.db`, `.DS_Store`, ...) |
+
+### `.gitignore` (en la raíz del proyecto)
 
 ```
 # Entorno y archivos temporales de Python
 .venv/
 __pycache__/
 *.pyc
+.ipynb_checkpoints/
 
-# Checkpoint pesado del cuaderno: se guarda en Drive, no en el repositorio
-modelos/detr_plantas_mejor.pt
+# Dataset de entrenamiento: pesa mucho y no hace falta para usar la aplicación
+dataset_plantas/
+dataset_plantas_detr.zip
 
 # Sistema
 Thumbs.db
@@ -247,7 +266,71 @@ desktop.ini
 .DS_Store
 ```
 
-Si prefiere subir también el checkpoint completo o el modelo en precisión completa (`--fp32`), use Git LFS.
+Los `.pt` de `modelos/` **no** se ignoran: van por Git LFS.
+
+### `.gitattributes` (en la raíz del proyecto)
+
+```
+modelos/*.pt filter=lfs diff=lfs merge=lfs -text
+```
+
+Este archivo lo crea solo el comando `git lfs track` del paso 2, pero debe subirse al repositorio.
+
+### Pasos (una sola vez, por quien sube el modelo)
+
+1. **Instalar Git LFS** y activarlo en el usuario de Git:
+   ```
+   git lfs version
+   git lfs install
+   ```
+   Si el primer comando no se reconoce: `winget install GitHub.GitLFS` (Windows), `brew install git-lfs` (macOS) o `sudo apt install git-lfs` (Linux), y volver a abrir la terminal.
+
+2. **Marcar los modelos como archivos LFS, antes de añadirlos:**
+   ```
+   git lfs track "modelos/*.pt"
+   git add .gitattributes .gitignore
+   ```
+
+3. **Subir el proyecto:**
+   ```
+   git add .
+   git commit -m "Aplicación de detección de plantas con DETR"
+   git push
+   ```
+
+4. **Comprobar** que los modelos quedaron en LFS:
+   ```
+   git lfs ls-files
+   ```
+   Deben aparecer `modelos/detr_plantas_mejor.pt` y `modelos/detr_plantas_front.pt`.
+
+### Si el push fue rechazado por el tamaño
+
+El archivo grande quedó en un commit hecho antes de activar LFS. Si es el **último commit y aún no se ha subido**:
+
+```
+git reset --soft HEAD~1
+git restore --staged modelos/detr_plantas_mejor.pt
+git lfs track "modelos/*.pt"
+git add .gitattributes modelos/
+git commit -m "Aplicación de detección de plantas con DETR"
+git push
+```
+
+Si el archivo está en varios commits, hay que reescribir el historial con `git lfs migrate import --include="modelos/*.pt"` y luego `git push --force-with-lease`. Esto cambia el historial para todo el equipo, así que hay que avisarles antes.
+
+### Para quien clona el repositorio
+
+1. Instalar Git LFS y correr `git lfs install` (una vez por computador) **antes** de clonar.
+2. Clonar con `git clone` (no con «Download ZIP», que puede traer solo los punteros).
+3. Si `modelos/detr_plantas_front.pt` pesa solo unos bytes, correr `git lfs pull` dentro del proyecto.
+4. Seguir con la sección 3 para verificar y la sección 6 para usar la aplicación.
+
+### Cuotas de Git LFS
+
+* **Tamaño por archivo:** hasta 2 GB en GitHub Free.
+* **Almacenamiento y ancho de banda:** la documentación de GitHub indica 10 GiB de cada uno en el plan Free (una página antigua dice 1 GiB; conviene revisar la cuota real en *Settings → Billing and plans*). Cada versión nueva del modelo que se suba suma al almacenamiento, y cada clon o `git lfs pull` suma al ancho de banda del dueño del repositorio.
+* **Alternativa sin LFS:** dejar los `.pt` en Google Drive o en GitHub Releases, y poner el enlace aquí para descargarlos a `modelos/`.
 
 ---
 

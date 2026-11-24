@@ -1,0 +1,14 @@
+# Entorno y archivos temporales de Python
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Dataset de entrenamiento: pesa mucho y no hace falta para usar la aplicación
+dataset_plantas/
+dataset_plantas_detr.zip
+
+# Sistema
+Thumbs.db
+desktop.ini
+.DS_Store
