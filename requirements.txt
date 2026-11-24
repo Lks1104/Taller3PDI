@@ -1,0 +1,6 @@
+# Aplicación de detección de plantas (solo inferencia)
+streamlit>=1.40
+torch>=2.2
+torchvision>=0.17
+numpy>=1.26
+pillow>=10.0

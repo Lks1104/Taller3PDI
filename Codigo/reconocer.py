@@ -1,95 +1,98 @@
-"""Reconocimiento de piezas en una foto (fase 6). Lo usan la aplicación y la evaluación de escenas.
+"""Detección y conteo de plantas en una foto aérea (lo usa la aplicación).
 
-Qué hace: para una foto, repite los pasos de las fases 2 a 4 con las mismas funciones:
-lado mayor a 640 px, mediana 3x3, segmentación b1, recorte de 128x128 con máscara por pieza,
-vector HOG + forma + LBP (8.139 columnas) y clase y probabilidad del modelo final.
-Detalle en documentacion\\PlanesContextoDeFase\\Fase6_Contexto.md, sección 2.
+Qué hace: carga el modelo DETR entrenado, parte la foto en mosaicos si hace falta, redimensiona
+cada mosaico a 640x640 (igual que en el entrenamiento), predice y devuelve las cajas en
+coordenadas de la foto original, con su confianza.
 Cómo se corre: no se corre; se importa. El modelo se carga una sola vez (cargar_modelo).
 Qué escribe: nada.
 """
-import json
 import time
+from pathlib import Path
 
-import cv2
-import joblib
 import numpy as np
+import torch
+from PIL import Image, ImageDraw
 
-from caracteristicas import car_forma, car_hog, car_lbp
-from preprocesamiento import RAIZ, filtrar, normalizar, recorte_roi, segmentar
+from detr_modelo import DETR
 
-RUTA_MODELO = RAIZ / "modelos" / "modelo_final.joblib"
-RUTA_INFO = RAIZ / "modelos" / "modelo_final.json"
-RUTA_PARAMETROS = RAIZ / "resultados" / "fase2" / "parametros.json"
-COLORES = {"Brick_1x4": (176, 111, 42), "Brick_2x2_L": (30, 138, 224),
-           "Plate_2x2": (91, 154, 58), "Plate_2x4": (46, 58, 176)}  # BGR
-
-_modelo = None
-
-
-def cargar_modelo():
-    """Carga el modelo final una sola vez y lo reutiliza."""
-    global _modelo
-    if _modelo is None:
-        _modelo = joblib.load(RUTA_MODELO)
-    return _modelo
+RAIZ = Path(__file__).resolve().parents[1]
+RUTA_MODELO = RAIZ / "modelos" / "detr_plantas_front.pt"
+MEDIA = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+COLOR_CAJA = (230, 40, 40)
 
 
-def info_modelo():
-    return json.loads(RUTA_INFO.read_text(encoding="utf-8"))
+def cargar_modelo(ruta=RUTA_MODELO):
+    """Devuelve (modelo, info). Acepta el archivo exportado (detr_plantas_front.pt) o el
+    checkpoint crudo detr_plantas_mejor.pt del cuaderno (en ese caso el umbral es 0.9)."""
+    ck = torch.load(ruta, map_location="cpu", weights_only=True)
+    cfg = ck["cfg"]
+    modelo = DETR(**cfg)
+    modelo.load_state_dict({k: (v.float() if v.is_floating_point() else v) for k, v in ck["model"].items()})
+    dispositivo = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    modelo.to(dispositivo).eval()
+    info = {"clases": ck.get("clases", ["planta"]), "umbral": float(ck.get("umbral", 0.9)),
+            "lado": int(cfg["img_size"]), "consultas": int(cfg["num_queries"]),
+            "metricas": ck.get("metricas", {}), "dispositivo": str(dispositivo)}
+    return modelo, info
 
 
-def parametros_fase2():
-    """Método de segmentación y filtro elegidos en la fase 2 (los mismos de generar_roi.py)."""
-    if RUTA_PARAMETROS.exists():
-        p = json.loads(RUTA_PARAMETROS.read_text(encoding="utf-8"))
-        return p["segmentacion"], p["filtro"]
-    return "b1", "mediana_3"
+def sugerir_mosaicos(ancho, alto):
+    """Heurística: un mosaico por cada ~800 px del lado mayor (en el entrenamiento, las fotos de
+    1024-1280 px se partieron en 2x2). Es solo el valor inicial: el usuario puede cambiarlo."""
+    return int(min(6, max(1, round(max(ancho, alto) / 800))))
 
 
-def vector_pieza(roi_img, roi_masc):
-    """Vector de 8.139 columnas, en el mismo orden que caracteristicas\\*.npz."""
-    return np.concatenate([car_hog(roi_img), car_forma(roi_masc), car_lbp(roi_img, roi_masc)])
+def _tensor(img, lado):
+    if img.size != (lado, lado):
+        img = img.resize((lado, lado))          # mismo resize que YoloDataset
+    x = torch.from_numpy(np.array(img)).permute(2, 0, 1).float() / 255.0
+    return (x - MEDIA) / STD
 
 
-def detectar(img_bgr, modelo=None):
-    """Devuelve (foto normalizada de 640 px, lista de piezas, milisegundos).
-    Cada pieza: caja (x, y, w, h) en la foto normalizada, clase, confianza, probabilidades por
-    clase, area_px y toca_borde."""
+@torch.no_grad()
+def detectar(img, modelo, info, umbral=None, mosaicos=1):
+    """img: PIL.Image. Devuelve (detecciones, milisegundos, detecciones_por_mosaico).
+    Cada detección: caja (x, y, w, h) en píxeles de la foto, clase, confianza y area_px."""
     t0 = time.perf_counter()
-    modelo = modelo or cargar_modelo()
-    metodo, filtro = parametros_fase2()
-    img = normalizar(img_bgr)
-    base = filtrar(img) if filtro == "mediana_3" else img
-    piezas, vectores = [], []
-    for p in segmentar(base, metodo):
-        roi_img, roi_masc = recorte_roi(base, p["mascara"], p["caja"])
-        if not roi_masc.any():  # pieza tan pequeña que desaparece al reducir el recorte
-            continue
-        vectores.append(vector_pieza(roi_img, roi_masc))
-        piezas.append({"caja": tuple(int(v) for v in p["caja"]), "area_px": int(p["area_px"]),
-                       "toca_borde": bool(p["toca_borde"])})
-    if vectores:
-        proba = modelo.predict_proba(np.stack(vectores))
-        clases = list(modelo.classes_)
-        for pieza, fila in zip(piezas, proba):
-            k = int(np.argmax(fila))
-            pieza["clase"] = clases[k]
-            pieza["confianza"] = float(fila[k])
-            pieza["probabilidades"] = {c: float(v) for c, v in zip(clases, fila)}
-    return img, piezas, (time.perf_counter() - t0) * 1000.0
+    umbral = info["umbral"] if umbral is None else umbral
+    img = img.convert("RGB")
+    W, H = img.size
+    xs = np.linspace(0, W, mosaicos + 1).round().astype(int)
+    ys = np.linspace(0, H, mosaicos + 1).round().astype(int)
+    cajas_mosaico = [(xs[i], ys[j], xs[i + 1], ys[j + 1]) for j in range(mosaicos) for i in range(mosaicos)]
+    disp = next(modelo.parameters()).device
+
+    dets, por_mosaico = [], []
+    for ini in range(0, len(cajas_mosaico), 4):                 # lotes de 4 mosaicos
+        lote = cajas_mosaico[ini:ini + 4]
+        x = torch.stack([_tensor(img.crop(c), info["lado"]) for c in lote]).to(disp)
+        out = modelo(x)
+        prob = out["pred_logits"].softmax(-1)[..., :-1].cpu()   # sin la clase «sin objeto»
+        conf, clase = prob.max(-1)
+        cajas = out["pred_boxes"].cpu()
+        for b, (x0, y0, x1, y1) in enumerate(lote):
+            tw, th = x1 - x0, y1 - y0
+            k = conf[b] > umbral
+            por_mosaico.append(int(k.sum()))
+            for (cx, cy, w, h), c, cl in zip(cajas[b][k].tolist(), conf[b][k].tolist(), clase[b][k].tolist()):
+                bx, by = x0 + (cx - w / 2) * tw, y0 + (cy - h / 2) * th
+                dets.append({"caja": (int(bx), int(by), int(w * tw), int(h * th)), "clase": info["clases"][cl],
+                             "confianza": float(c), "area_px": int(w * tw * h * th)})
+    dets.sort(key=lambda d: (d["caja"][1], d["caja"][0]))
+    return dets, (time.perf_counter() - t0) * 1000.0, por_mosaico
 
 
-def dibujar(img, piezas):
-    """Copia de la foto con un rectángulo y la etiqueta «clase – confianza %» por pieza."""
-    salida = img.copy()
-    for p in piezas:
-        x, y, w, h = p["caja"]
-        color = COLORES.get(p["clase"], (0, 0, 0))
-        cv2.rectangle(salida, (x, y), (x + w, y + h), color, 2)
-        texto = f"{p['clase']} {p['confianza'] * 100:.0f}%" + (" (borde)" if p["toca_borde"] else "")
-        (tw, th), base = cv2.getTextSize(texto, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        y_txt = y - 6 if y - th - 8 >= 0 else y + h + th + 6
-        cv2.rectangle(salida, (x, y_txt - th - 4), (x + tw + 6, y_txt + base - 2), color, cv2.FILLED)
-        cv2.putText(salida, texto, (x + 3, y_txt - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
-                    cv2.LINE_AA)
-    return salida
+def dibujar(img, dets, lado_max=1600, mosaicos=1):
+    """Copia de la foto (reducida a lado_max como mucho) con un rectángulo por planta."""
+    img = img.convert("RGB")
+    s = min(1.0, lado_max / max(img.size))
+    if s < 1.0:
+        img = img.resize((int(img.width * s), int(img.height * s)))
+    d = ImageDraw.Draw(img)
+    for p in dets:
+        x, y, w, h = [v * s for v in p["caja"]]
+        d.rectangle([x, y, x + w, y + h], outline=COLOR_CAJA, width=2)
+        if len(dets) <= 80:
+            d.text((x + 2, max(y - 11, 0)), f"{p['confianza']:.2f}", fill=COLOR_CAJA)
+    return img
