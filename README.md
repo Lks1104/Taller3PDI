@@ -1,6 +1,6 @@
 # Contador de plantas de plátano y banano con DETR
 
-Taller final de Procesamiento Digital de Imágenes, Parte 2, aplicado al proyecto de aforamiento digital de UNIBAN.
+Taller final de Procesamiento Digital de Imágenes.
 
 La aplicación recibe una foto aérea (tomada con dron, vista desde arriba) de un cultivo de plátano o banano, **encuentra cada planta, dibuja un rectángulo sobre ella y cuenta cuántas hay**. Usa un modelo DETR (*DEtection TRansformer*, ResNet-50 con transformer de 6 capas de encoder y 6 de decoder) entrenado con fotos de cultivos. La interfaz está hecha con Streamlit y corre en el navegador.
 
@@ -63,14 +63,14 @@ Para **solo usar** la aplicación no se necesita el dataset ni el cuaderno.
 
 ## 3. Verificar que todo está
 
-Todos los comandos se corren **desde la carpeta del proyecto** (la que contiene este archivo). Los de este documento son para Windows. En Linux o macOS cambie `py -3.12` por `python3`, `.venv\Scripts\python` por `.venv/bin/python` y `\` por `/`.
+Todos los comandos se corren **desde la carpeta del proyecto** (la que contiene este archivo). Los de este documento son para Windows. En Linux o macOS cambie `py` por `python3`, `.venv\Scripts\python` por `.venv/bin/python` y `\` por `/`.
 
 ### 3.1 Python
 
 ```
-py -3.12 --version
+py --version
 ```
-Debe mostrar `Python 3.12.x`. Si dice que no lo encuentra, ver la sección 4.
+Debe mostrar `Python 3.xx.x`. Si dice que no lo encuentra, ver la sección 4.
 
 ### 3.2 Entorno virtual y bibliotecas
 
@@ -108,7 +108,7 @@ Debe imprimir un diccionario con `clases: ['planta']`, `umbral: 0.9`, `lado: 640
 
 | Qué falta | Qué hacer |
 |---|---|
-| **Python 3.12** | Instalarlo desde https://www.python.org/downloads/ marcando *Add python.exe to PATH* y volver a abrir la terminal |
+| **Python** | Instalarlo desde https://www.python.org/downloads/ marcando *Add python.exe to PATH* y volver a abrir la terminal |
 | **`.venv` o las bibliotecas** | Hacer la instalación de la sección 5, pasos 1 y 2 |
 | **`detr_plantas_front.pt` existe pero pesa solo unos bytes (o da `invalid load key`)** | Es el archivito de texto de Git LFS y no el modelo real. Instalar Git LFS y correr `git lfs pull` (sección 11) |
 | **Archivos de `Codigo/`** | Copiarlos desde el repositorio. Los tres deben estar en la misma carpeta |
@@ -124,7 +124,7 @@ Debe imprimir un diccionario con `clases: ['planta']`, `umbral: 0.9`, `lado: 640
 
 1. **Crear el entorno virtual**
    ```
-   py -3.12 -m venv .venv
+   py -m venv .venv
    .venv\Scripts\python -m pip install --upgrade pip
    ```
 
